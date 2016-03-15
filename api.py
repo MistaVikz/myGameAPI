@@ -6,6 +6,7 @@ primarily with communication to/from the API's users."""
 
 import logging
 import endpoints
+import random
 from protorpc import remote, messages
 from google.appengine.api import memcache
 from google.appengine.api import taskqueue
@@ -14,10 +15,6 @@ from models import User, Game, Score
 from models import StringMessage, NewGameForm, GameForm, MakeMoveForm,\
     ScoreForms
 from utils import get_by_urlsafe
-
-# Assign values to face cards
-cardValues = ("Ace","Two","Three","Four","Five","Six","Seven","Eight",
-            "Nine","Ten", "Jack","Queen","King")
 
 NEW_GAME_REQUEST = endpoints.ResourceContainer(NewGameForm)
 GET_GAME_REQUEST = endpoints.ResourceContainer(
@@ -30,7 +27,7 @@ USER_REQUEST = endpoints.ResourceContainer(user_name=messages.StringField(1),
 
 MEMCACHE_CURRENT_STREAK = 'CURRENT_STREAK'
 
-@endpoints.api(name='HotStreak', version='v1')
+@endpoints.api(name='hot_streak', version='v1')
 class HotStreakApi(remote.Service):
     """Game API"""
     @endpoints.method(request_message=USER_REQUEST,
@@ -58,9 +55,9 @@ class HotStreakApi(remote.Service):
         user = User.query(User.name == request.user_name).get()
         if not user:
             raise endpoints.NotFoundException(
-              'A User with that name does not exist!')
-              game = Game.new_game(user.key)
+            'A User with that name does not exist!')
         
+        game = Game.new_game(user.key)
         # Use a task queue to update the average attempts remaining.
         # This operation is not needed to complete the creation of a new game
         # so it is performed out of sequence.
@@ -78,7 +75,7 @@ class HotStreakApi(remote.Service):
         if game:
             return game.to_form('Higher or Lower?')
         else:
-            raise endpoints.NotFoundException('Oops. Game not found!')
+            raise endpoints.NotFoundException('Game not found!')
 
     @endpoints.method(request_message=MAKE_MOVE_REQUEST,
                       response_message=GameForm,
@@ -86,57 +83,60 @@ class HotStreakApi(remote.Service):
                       name='make_move',
                       http_method='PUT')
     def make_move(self, request):
-        """Makes a move. Returns a game state with message"""
+        """Guess Higher or Lower"""
         game = get_by_urlsafe(request.urlsafe_game_key, Game)
-        d_card = cardValues.index(game.dealercard)
-        m_card = cardValues.index(game.myCard)
+        cardValues = ("Ace","Two","Three","Four","Five","Six","Seven","Eight",
+            "Nine","Ten", "Jack","Queen","King")
+
+        game = get_by_urlsafe(request.urlsafe_game_key, Game)
+        d_card = random.choice(range(1,13))
+        m_card = random.choice(range(1,13))
         my_guess= request.guess
 
-        StringMessage(message="The dealer has a %s" %(cardValues(d_card)))
+        StringMessage(message="The dealer has a %s" %(cardValues[d_card]))
 
         if game.game_over:
             return game.to_form('Game already over!')
 
         # If incorrect input, warn user and try again
-        if (my_guess.lower() != "higher" and my_guess.lower() != "h"
-          and my_guess.lower() != "lower" and my_guess.lower() != "l"):
-            game.end_game(False)
+        if (my_guess.lower() != "higher" and my_guess.lower() != "lower"):
             msg = "Oops. You entered something other than Higher or Lower."
             game.put()
-            return game.to_form(msg + "How about we try that again?")
+            return game.to_form(msg + " How about we try that again?")
 
         # If the cards match, automatic win.
         if m_card == d_card:
             game.streak += 1
-            game.end_game(False)
-            msg = "Your card is a %s" %(cardValues(m_card))
+            msg = "Your card is a %s" %(cardValues[m_card])
             game.put()
-            return game.to_form(msg + "Lucky Break! You Automatically Win!")
+            return game.to_form(msg + 
+                ". The dealer has the same card. You Automatically Win!")
 
         # User guesses Higher and is correct
-        else if (my_guess.lower() == "higher" or my_guess.lower() == "h")
-            and (m_card > d.card):
-            game.streak += 1
-            game.end_game(False)
-            msg = "Your card is a %s" %(cardValues(m_card))
-            game.put()
-            return game.to_form(msg + "You Win!")
+        elif (my_guess.lower() == "higher") and (m_card > d_card):
+              game.streak += 1
+              msg = "The dealer has a %s" %(cardValues[d_card])
+              msg = msg + ". Your card is a %s" %(cardValues[m_card])
+              game.put()
+              return game.to_form(msg + ". You Win!")
 
         # User guesses Lower and is correct
-        else if (my_guess.lower() == "lower" or my_guess.lower() == "l")
-            and (m_card < d.card):
+        elif (my_guess.lower() == "lower" and (m_card < d_card)):
             game.streak += 1
-            game.end_game(False)
-            msg = "Your card is a %s" %(cardValues(m_card))
+            msg = "The dealer has a %s" %(cardValues[d_card])
+            msg = msg + ". Your card is a %s" %(cardValues[m_card])
             game.put()
-            return game.to_form(msg + "You Win!")
+            return game.to_form(msg + ". You Win!")
 
         # User guesses incorrectly, so game over.
-        else
-          game.end_game(True)
-          msg = "Your card is a %s" %(cardValues(m_card))
-          return game.to_form(msg + "So Sorry. Game Over!")
-        
+        else:
+          msg = "The dealer has a %s" %(cardValues[d_card])
+          msg = msg + ". Your card is a %s" %(cardValues[m_card])
+          game.game_over=True
+          game.put()
+          game.put_Scores()
+          return game.to_form(msg + ". Game Over!")
+
     @endpoints.method(response_message=ScoreForms,
                       path='scores',
                       name='get_scores',
@@ -164,14 +164,15 @@ class HotStreakApi(remote.Service):
                       name='get_current_streak',
                       http_method='GET')
     def get_current_streak(self, request):
-        # Get the current win streak stored in the cache
+        """Get the cached current streak"""
         return StringMessage(message=memcache.get(MEMCACHE_CURRENT_STREAK) or '')
 
     @staticmethod
-    def _cache_current_streak():
-        """Populates memcache with the average moves remaining of Games"""
+    def cache_current_streak():
+        """Populates memcache with the current streak"""
         games = Game.query(Game.game_over == False).fetch()
         if games:
-          memcache.set(MEMCACHE_CURRENT_STREAK, "Current Streak: %d" %game.streak)
+          memcache.set(MEMCACHE_CURRENT_STREAK, str(Game.streak))
+
 
 api = endpoints.api_server([HotStreakApi])
