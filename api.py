@@ -13,9 +13,10 @@ from google.appengine.api import taskqueue
 
 from models import User, Game, Score
 from models import StringMessage, NewGameForm, GameForm, MakeMoveForm,\
-    ScoreForms
+    ScoreForms, GameForms, ScoreRequestForm
 from utils import get_by_urlsafe
 
+SCORE_REQUEST = endpoints.ResourceContainer(ScoreRequestForm)
 NEW_GAME_REQUEST = endpoints.ResourceContainer(NewGameForm)
 GET_GAME_REQUEST = endpoints.ResourceContainer(
         urlsafe_game_key=messages.StringField(1),)
@@ -77,6 +78,23 @@ class HotStreakApi(remote.Service):
         else:
             raise endpoints.NotFoundException('Game not found!')
 
+    @endpoints.method(request_message=GET_GAME_REQUEST,
+                      response_message=StringMessage,
+                      path='game/{urlsafe_game_key}',
+                      name='stop_game',
+                      http_method='DELETE')
+    def stop_game(self, request):
+        """Ends a game that is currently in-progress"""
+        game = get_by_urlsafe(request.urlsafe_game_key, Game)
+        if game and not game.game_over:
+            game.key.delete()
+            return StringMessage(message='Game with key: {} deleted.'.
+                                 format(request.urlsafe_game_key))
+        elif game and game.game_over:
+            raise endpoints.BadRequestException('Cannot delete a completed game!')
+        else:
+            raise endpoints.NotFoundException('That game does not exist!')
+
     @endpoints.method(request_message=MAKE_MOVE_REQUEST,
                       response_message=GameForm,
                       path='game/{urlsafe_game_key}',
@@ -88,7 +106,6 @@ class HotStreakApi(remote.Service):
         cardValues = ("Ace","Two","Three","Four","Five","Six","Seven","Eight",
             "Nine","Ten", "Jack","Queen","King")
 
-        game = get_by_urlsafe(request.urlsafe_game_key, Game)
         d_card = random.choice(range(1,13))
         m_card = random.choice(range(1,13))
         my_guess= request.guess
@@ -136,14 +153,34 @@ class HotStreakApi(remote.Service):
           game.put()
           game.put_Scores()
           return game.to_form(msg + ". Game Over!")
-
-    @endpoints.method(response_message=ScoreForms,
-                      path='scores',
-                      name='get_scores',
+ 
+    @endpoints.method(request_message=USER_REQUEST,
+                      response_message=GameForms,
+                      path='user/games',
+                      name='get_user_games',
                       http_method='GET')
-    def get_scores(self, request):
-        """Return all scores"""
-        return ScoreForms(items=[score.to_form() for score in Score.query()])
+    def get_user_games(self, request):
+        """Returns the active games of a specific user"""
+        user = User.query(User.name == request.user_name).get()
+        if not user:
+            raise endpoints.BadRequestException('User not found!')
+        
+        games = Game.query(Game.user == user.key).\
+            filter(Game.game_over == False)
+        return GameForms(items=[game.to_form("") for game in games])
+
+    @endpoints.method(request_message=SCORE_REQUEST,
+                      response_message=ScoreForms,
+                      path='scores',
+                      name='get_high_scores',
+                      http_method='PUT')
+    def get_high_scores(self, request):
+        """Return all scores ordered by streak length"""
+        rlen = request.num_results
+
+        scores=Score.query().order(-Score.lastStreak)
+        f_scores= scores.fetch(rlen)
+        return ScoreForms(items=[score.to_form() for score in f_scores])
 
     @endpoints.method(request_message=USER_REQUEST,
                       response_message=ScoreForms,
@@ -165,14 +202,15 @@ class HotStreakApi(remote.Service):
                       http_method='GET')
     def get_current_streak(self, request):
         """Get the cached current streak"""
-        return StringMessage(message=memcache.get(MEMCACHE_CURRENT_STREAK) or '')
+        return StringMessage(message=memcache.get(MEMCACHE_CURRENT_STREAK) or "")
 
     @staticmethod
     def cache_current_streak():
         """Populates memcache with the current streak"""
         games = Game.query(Game.game_over == False).fetch()
         if games:
-          memcache.set(MEMCACHE_CURRENT_STREAK, str(Game.streak))
-
+          c_streak= Game.request.get(streak)
+          memcache.set(MEMCACHE_CURRENT_STREAK, 'The current streak is: {} '.
+                                 format(c_streak))
 
 api = endpoints.api_server([HotStreakApi])

@@ -16,7 +16,7 @@ class User(ndb.Model):
 
 class Game(ndb.Model):
     """Game object"""
-    streak = ndb.IntegerProperty(required=True)
+    streak = ndb.IntegerProperty(required=True, default=0)
     game_over = ndb.BooleanProperty(required=True, default=False)
     user = ndb.KeyProperty(required=True, kind='User')
 
@@ -53,6 +53,7 @@ class Score(ndb.Model):
     user = ndb.KeyProperty(required=True, kind='User')
     date = ndb.DateProperty(required=True)
     lastStreak = ndb.IntegerProperty(required=True)
+
     def to_form(self):
         return ScoreForm(user_name=self.user.get().name, date=str(self.date),
                         lastStreak=self.lastStreak)
@@ -66,6 +67,9 @@ class GameForm(messages.Message):
     message = messages.StringField(4, required=True)
     user_name = messages.StringField(5, required=True)
 
+class GameForms(messages.Message):
+    """Return multiple GameForms"""
+    items = messages.MessageField(GameForm, 1, repeated=True)
 
 class NewGameForm(messages.Message):
     """Used to create a new game"""
@@ -76,6 +80,9 @@ class MakeMoveForm(messages.Message):
     """Used to make a move in an existing game"""
     guess = messages.StringField(1, required=True)
 
+class ScoreRequestForm(messages.Message):
+    """Used to limit the number of returned Scores"""
+    num_results = messages.IntegerField(1, required=False, default=5)
 
 class ScoreForm(messages.Message):
     """ScoreForm for outbound Score information"""
