@@ -23,10 +23,14 @@ GET_GAME_REQUEST = endpoints.ResourceContainer(
 MAKE_MOVE_REQUEST = endpoints.ResourceContainer(
     MakeMoveForm,
     urlsafe_game_key=messages.StringField(1),)
-USER_REQUEST = endpoints.ResourceContainer(user_name=messages.StringField(1),
+USER_REQUEST = endpoints.ResourceContainer(user_name=messages.StringField(1, 
+                                          required=True),
                                            email=messages.StringField(2))
 
 MEMCACHE_AVERAGE_SCORE = 'AVERAGE_SCORE'
+
+cardValues = ("Ace","Two","Three","Four","Five","Six","Seven","Eight",
+            "Nine","Ten", "Jack","Queen","King")
 
 @endpoints.api(name='hot_streak', version='v1')
 class HotStreakApi(remote.Service):
@@ -81,7 +85,8 @@ class HotStreakApi(remote.Service):
         """Return the current game state."""
         game = get_by_urlsafe(request.urlsafe_game_key, Game)
         if game:
-            return game.to_form('Higher or Lower? Place a bet!')
+            msg = "The dealer has a %s" %(cardValues[game.nextcard])
+            return game.to_form(msg + '. Higher or Lower? Place a bet!')
         else:
             raise endpoints.NotFoundException('Game not found!')
 
@@ -110,15 +115,11 @@ class HotStreakApi(remote.Service):
     def make_move(self, request):
         """Guess Higher or Lower and place a bet"""
         game = get_by_urlsafe(request.urlsafe_game_key, Game)
-        cardValues = ("Ace","Two","Three","Four","Five","Six","Seven","Eight",
-            "Nine","Ten", "Jack","Queen","King")
-
-        d_card = random.choice(range(1,13))
+        
+        d_card = game.nextcard
         m_card = random.choice(range(1,13))
         my_guess= request.guess
         my_bet = request.bet
-
-        StringMessage(message="The dealer has a %s" %(cardValues[d_card]))
 
         if game.game_over:
           return game.to_form('Game already over!')
@@ -142,6 +143,7 @@ class HotStreakApi(remote.Service):
         # If incorrect gues, warn user and try again
         if (my_guess.lower() != "higher" and my_guess.lower() != "lower"):
           msg = "Oops. You entered something other than Higher or Lower."
+          game.nextcard = random.choice(range(1,13))
           game.put()
           return game.to_form(msg + " How about we try that again?")
 
@@ -152,6 +154,7 @@ class HotStreakApi(remote.Service):
           msg += ". The dealer has the same card. You now have %d" %(game.points)
           game.history.append(("You had the same card as the dealer. Points: %d" 
                               %(game.points)))
+          game.nextcard = random.choice(range(1,13))
           game.put()
           return game.to_form(msg + 
               " points. You doubled your bet!")
@@ -164,6 +167,7 @@ class HotStreakApi(remote.Service):
           msg = msg + ". You now have %d" %(game.points)
           game.history.append(("You guessed higher and you were correct. Points: %d"
                               %(game.points)))
+          game.nextcard = random.choice(range(1,13))
           game.put()
           return game.to_form(msg + " points. You Win!")
 
@@ -175,6 +179,7 @@ class HotStreakApi(remote.Service):
           msg = msg + ". You now have %d" %(game.points)
           game.history.append(("You guessed lower and you were correct. Points: %d"
                                 %(game.points)))
+          game.nextcard = random.choice(range(1,13))
           game.put()
           return game.to_form(msg + " points. You Win!")
 

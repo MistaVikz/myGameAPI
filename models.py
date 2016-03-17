@@ -38,6 +38,7 @@ class User(ndb.Model):
 class Game(ndb.Model):
     """Game object"""
     points = ndb.IntegerProperty(required=True)
+    nextcard=ndb.IntegerProperty()
     game_over = ndb.BooleanProperty(required=True, default=False)
     user = ndb.KeyProperty(required=True, kind='User')
     history = ndb.PickleProperty(required=True)
@@ -46,6 +47,7 @@ class Game(ndb.Model):
     def new_game(cls, user):
         """Creates and returns a new game"""
         game = Game(user=user,
+                    nextcard=random.choice(range(1,13)),
                     points=10,
                     game_over=False)
         game.history = []
@@ -57,6 +59,7 @@ class Game(ndb.Model):
         form = GameForm()
         form.urlsafe_key = self.key.urlsafe()
         form.user_name = self.user.get().name
+        form.nextcard = self.nextcard
         form.points = self.points
         form.game_over = self.game_over
         form.message = message
@@ -86,9 +89,10 @@ class GameForm(messages.Message):
     """GameForm for outbound game state information"""
     urlsafe_key = messages.StringField(1, required=True)
     points = messages.IntegerField(2)
-    game_over = messages.BooleanField(3, required=True)
-    message = messages.StringField(4, required=True)
-    user_name = messages.StringField(5, required=True)
+    nextcard = messages.IntegerField(3)
+    game_over = messages.BooleanField(4, required=True)
+    message = messages.StringField(5, required=True)
+    user_name = messages.StringField(6, required=True)
 
 class GameForms(messages.Message):
     """Return multiple GameForms"""
@@ -114,7 +118,6 @@ class ScoreForm(messages.Message):
     date = messages.StringField(2, required=True)
     points = messages.IntegerField(3)
 
-
 class ScoreForms(messages.Message):
     """Return multiple ScoreForms"""
     items = messages.MessageField(ScoreForm, 1, repeated=True)
@@ -126,7 +129,6 @@ class UserForm(messages.Message):
     total_points = messages.IntegerField(3, required=True)
     total_games = messages.IntegerField(4, required=True)
     avg_score = messages.FloatField(5, required=True)
-
 
 class UserForms(messages.Message):
     """Container for multiple User Forms"""
