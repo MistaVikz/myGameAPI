@@ -13,7 +13,7 @@ from google.appengine.api import taskqueue
 
 from models import User, Game, Score
 from models import StringMessage, NewGameForm, GameForm, MakeMoveForm,\
-    ScoreForms, GameForms, ScoreRequestForm
+    ScoreForms, GameForms, ScoreRequestForm, UserForm, UserForms
 from utils import get_by_urlsafe
 
 SCORE_REQUEST = endpoints.ResourceContainer(ScoreRequestForm)
@@ -26,7 +26,7 @@ MAKE_MOVE_REQUEST = endpoints.ResourceContainer(
 USER_REQUEST = endpoints.ResourceContainer(user_name=messages.StringField(1),
                                            email=messages.StringField(2))
 
-MEMCACHE_CURRENT_STREAK = 'CURRENT_STREAK'
+MEMCACHE_AVERAGE_SCORE = 'AVERAGE_SCORE'
 
 @endpoints.api(name='hot_streak', version='v1')
 class HotStreakApi(remote.Service):
@@ -46,6 +46,17 @@ class HotStreakApi(remote.Service):
         return StringMessage(message='User {} created!'.format(
                 request.user_name))
 
+    @endpoints.method(response_message=UserForms,
+                      path='user/ranking',
+                      name='get_user_rankings',
+                      http_method='GET')
+    def get_user_rankings(self, request):
+        """Return all Users ranked by their win percentage"""
+        users = User.query(User.total_games > 0).fetch()
+        users = sorted(users, key=lambda x: x.avg_score, reverse=True)
+        return UserForms(items=[user.to_form() for user in users])
+
+
     @endpoints.method(request_message=NEW_GAME_REQUEST,
                       response_message=GameForm,
                       path='game',
@@ -62,7 +73,7 @@ class HotStreakApi(remote.Service):
         # Use a task queue to update the average attempts remaining.
         # This operation is not needed to complete the creation of a new game
         # so it is performed out of sequence.
-        taskqueue.add(url='/tasks/cache_current_streak')
+        taskqueue.add(url='/tasks/cache_average_score')
         return game.to_form('Time To Play HotStreak!')
 
     @endpoints.method(request_message=GET_GAME_REQUEST,
@@ -123,25 +134,28 @@ class HotStreakApi(remote.Service):
 
         # If the cards match, automatic win.
         if m_card == d_card:
-            game.streak += 1
+            game.points += 1
             msg = "Your card is a %s" %(cardValues[m_card])
+            game.history.append(("You had the same card as the dealer."))
             game.put()
             return game.to_form(msg + 
                 ". The dealer has the same card. You Automatically Win!")
 
         # User guesses Higher and is correct
         elif (my_guess.lower() == "higher") and (m_card > d_card):
-              game.streak += 1
+              game.points += 1
               msg = "The dealer has a %s" %(cardValues[d_card])
               msg = msg + ". Your card is a %s" %(cardValues[m_card])
+              game.history.append(("You guessed higher and you were correct."))
               game.put()
               return game.to_form(msg + ". You Win!")
 
         # User guesses Lower and is correct
         elif (my_guess.lower() == "lower" and (m_card < d_card)):
-            game.streak += 1
+            game.points += 1
             msg = "The dealer has a %s" %(cardValues[d_card])
             msg = msg + ". Your card is a %s" %(cardValues[m_card])
+            game.history.append(("You guessed lower and you were correct."))
             game.put()
             return game.to_form(msg + ". You Win!")
 
@@ -150,6 +164,7 @@ class HotStreakApi(remote.Service):
           msg = "The dealer has a %s" %(cardValues[d_card])
           msg = msg + ". Your card is a %s" %(cardValues[m_card])
           game.game_over=True
+          game.history.append(("You were incorrect. Game over."))
           game.put()
           game.put_Scores()
           return game.to_form(msg + ". Game Over!")
@@ -169,6 +184,18 @@ class HotStreakApi(remote.Service):
             filter(Game.game_over == False)
         return GameForms(items=[game.to_form("") for game in games])
 
+    @endpoints.method(request_message=GET_GAME_REQUEST,
+                      response_message=StringMessage,
+                      path='game/{urlsafe_game_key}/history',
+                      name='get_game_history',
+                      http_method='GET')
+    def get_game_history(self, request):
+        """Returns a summary of a game's guesses."""
+        game = get_by_urlsafe(request.urlsafe_game_key, Game)
+        if not game:
+            raise endpoints.NotFoundException('Game not found')
+        return StringMessage(message=str(game.history))
+
     @endpoints.method(request_message=SCORE_REQUEST,
                       response_message=ScoreForms,
                       path='scores',
@@ -178,7 +205,7 @@ class HotStreakApi(remote.Service):
         """Return all scores ordered by streak length"""
         rlen = request.num_results
 
-        scores=Score.query().order(-Score.lastStreak)
+        scores=Score.query().order(-Score.points)
         f_scores= scores.fetch(rlen)
         return ScoreForms(items=[score.to_form() for score in f_scores])
 
@@ -197,20 +224,22 @@ class HotStreakApi(remote.Service):
         return ScoreForms(items=[score.to_form() for score in scores])
 
     @endpoints.method(response_message=StringMessage,
-                      path='games/current_streak',
-                      name='get_current_streak',
+                      path='games/average_score',
+                      name='get_average_score',
                       http_method='GET')
-    def get_current_streak(self, request):
-        """Get the cached current streak"""
-        return StringMessage(message=memcache.get(MEMCACHE_CURRENT_STREAK) or "")
+    def get_average_score(self, request):
+        """Get the cached average score"""
+        return StringMessage(message=memcache.get(MEMCACHE_AVERAGE_SCORE) or "")
 
     @staticmethod
-    def cache_current_streak():
-        """Populates memcache with the current streak"""
+    def cache_average_score():
+        """Populates memcache with the average score"""
         games = Game.query(Game.game_over == False).fetch()
         if games:
-          c_streak= Game.request.get(streak)
-          memcache.set(MEMCACHE_CURRENT_STREAK, 'The current streak is: {} '.
-                                 format(c_streak))
+            count = len(games)
+            total_score = sum([game.points for game in games])
+            average = float(total_score)/count
+            memcache.set(MEMCACHE_AVERAGE_SCORE,
+                         'Your average score is {:.2f}'.format(average))
 
 api = endpoints.api_server([HotStreakApi])

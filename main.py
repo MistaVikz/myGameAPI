@@ -28,14 +28,14 @@ class SendReminderEmail(webapp2.RequestHandler):
                            body)
 
 
-class UpdateCurrentStreak(webapp2.RequestHandler):
+class UpdateAverageScore(webapp2.RequestHandler):
     def post(self):
         """Update game listing announcement in memcache."""
-        HotStreakApi.cache_current_streak()
+        HotStreakApi.cache_average_score()
         self.response.set_status(204)
 
 
 app = webapp2.WSGIApplication([
     ('/crons/send_reminder', SendReminderEmail),
-    ('/tasks/cache_current_streak', UpdateCurrentStreak),
+    ('/tasks/cache_average_score', UpdateAverageScore),
 ], debug=True)

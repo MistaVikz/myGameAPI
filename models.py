@@ -12,20 +12,43 @@ class User(ndb.Model):
     """User profile"""
     name = ndb.StringProperty(required=True)
     email =ndb.StringProperty()
+    total_points=ndb.IntegerProperty(default=0)
+    total_games = ndb.IntegerProperty(default=0)
 
+    @property
+    def avg_score(self):
+        if self.total_games > 0:
+            return float(self.total_points)/float(self.total_games)
+        else:
+            return 0
+
+    def to_form(self):
+        return UserForm(name=self.name,
+                        email=self.email,
+                        total_points=self.total_points,
+                        total_games=self.total_games,
+                        avg_score=self.avg_score)
+
+#    def add_win(self):
+#        """Add a win"""
+#        self.wins += 1
+#        self.total_played += 1
+#        self.put()
 
 class Game(ndb.Model):
     """Game object"""
-    streak = ndb.IntegerProperty(required=True, default=0)
+    points = ndb.IntegerProperty(required=True, default=0)
     game_over = ndb.BooleanProperty(required=True, default=False)
     user = ndb.KeyProperty(required=True, kind='User')
+    history = ndb.PickleProperty(required=True)
 
     @classmethod
     def new_game(cls, user):
         """Creates and returns a new game"""
         game = Game(user=user,
-                    streak=0,
+                    points=0,
                     game_over=False)
+        game.history = []
         game.put()
         return game
 
@@ -34,7 +57,7 @@ class Game(ndb.Model):
         form = GameForm()
         form.urlsafe_key = self.key.urlsafe()
         form.user_name = self.user.get().name
-        form.streak = self.streak
+        form.points = self.points
         form.game_over = self.game_over
         form.message = message
         return form
@@ -44,7 +67,7 @@ class Game(ndb.Model):
         self.put()
         # Add the game to the score 'board'
         score = Score(user=self.user, date=date.today(),
-                      lastStreak=self.streak)
+                      points=self.points)
         score.put()
 
 
@@ -52,17 +75,17 @@ class Score(ndb.Model):
     """Score object"""
     user = ndb.KeyProperty(required=True, kind='User')
     date = ndb.DateProperty(required=True)
-    lastStreak = ndb.IntegerProperty(required=True)
+    points = ndb.IntegerProperty(required=True)
 
     def to_form(self):
         return ScoreForm(user_name=self.user.get().name, date=str(self.date),
-                        lastStreak=self.lastStreak)
+                        points=self.points)
 
 
 class GameForm(messages.Message):
     """GameForm for outbound game state information"""
     urlsafe_key = messages.StringField(1, required=True)
-    streak = messages.IntegerField(2, required=True)
+    points = messages.IntegerField(2, required=True)
     game_over = messages.BooleanField(3, required=True)
     message = messages.StringField(4, required=True)
     user_name = messages.StringField(5, required=True)
@@ -88,12 +111,25 @@ class ScoreForm(messages.Message):
     """ScoreForm for outbound Score information"""
     user_name = messages.StringField(1, required=True)
     date = messages.StringField(2, required=True)
-    lastStreak = messages.IntegerField(3, required=True)
+    points = messages.IntegerField(3, required=True)
 
 
 class ScoreForms(messages.Message):
     """Return multiple ScoreForms"""
     items = messages.MessageField(ScoreForm, 1, repeated=True)
+
+class UserForm(messages.Message):
+    """User Form"""
+    name = messages.StringField(1, required=True)
+    email = messages.StringField(2)
+    total_points = messages.IntegerField(3, required=True)
+    total_games = messages.IntegerField(4, required=True)
+    avg_score = messages.FloatField(5, required=True)
+
+
+class UserForms(messages.Message):
+    """Container for multiple User Forms"""
+    items = messages.MessageField(UserForm, 1, repeated=True)
 
 
 class StringMessage(messages.Message):
