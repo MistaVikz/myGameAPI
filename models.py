@@ -29,15 +29,15 @@ class User(ndb.Model):
                         total_games=self.total_games,
                         avg_score=self.avg_score)
 
-#    def add_win(self):
-#        """Add a win"""
-#        self.wins += 1
-#        self.total_played += 1
-#        self.put()
+    def update_user(self, points):
+        """Update user scoring."""
+        self.total_points += points
+        self.total_games += 1
+        self.put()
 
 class Game(ndb.Model):
     """Game object"""
-    points = ndb.IntegerProperty(required=True, default=0)
+    points = ndb.IntegerProperty(required=True)
     game_over = ndb.BooleanProperty(required=True, default=False)
     user = ndb.KeyProperty(required=True, kind='User')
     history = ndb.PickleProperty(required=True)
@@ -46,7 +46,7 @@ class Game(ndb.Model):
     def new_game(cls, user):
         """Creates and returns a new game"""
         game = Game(user=user,
-                    points=0,
+                    points=10,
                     game_over=False)
         game.history = []
         game.put()
@@ -62,14 +62,14 @@ class Game(ndb.Model):
         form.message = message
         return form
 
-    def put_Scores(self):
+    def put_Scores(self,user):
         self.game_over= True
         self.put()
         # Add the game to the score 'board'
         score = Score(user=self.user, date=date.today(),
                       points=self.points)
         score.put()
-
+        user.get().update_user(self.points)
 
 class Score(ndb.Model):
     """Score object"""
@@ -85,7 +85,7 @@ class Score(ndb.Model):
 class GameForm(messages.Message):
     """GameForm for outbound game state information"""
     urlsafe_key = messages.StringField(1, required=True)
-    points = messages.IntegerField(2, required=True)
+    points = messages.IntegerField(2)
     game_over = messages.BooleanField(3, required=True)
     message = messages.StringField(4, required=True)
     user_name = messages.StringField(5, required=True)
@@ -102,6 +102,7 @@ class NewGameForm(messages.Message):
 class MakeMoveForm(messages.Message):
     """Used to make a move in an existing game"""
     guess = messages.StringField(1, required=True)
+    bet = messages.IntegerField(2, required=True)
 
 class ScoreRequestForm(messages.Message):
     """Used to limit the number of returned Scores"""
@@ -111,7 +112,7 @@ class ScoreForm(messages.Message):
     """ScoreForm for outbound Score information"""
     user_name = messages.StringField(1, required=True)
     date = messages.StringField(2, required=True)
-    points = messages.IntegerField(3, required=True)
+    points = messages.IntegerField(3)
 
 
 class ScoreForms(messages.Message):

@@ -70,11 +70,7 @@ class HotStreakApi(remote.Service):
             'A User with that name does not exist!')
         
         game = Game.new_game(user.key)
-        # Use a task queue to update the average attempts remaining.
-        # This operation is not needed to complete the creation of a new game
-        # so it is performed out of sequence.
-        taskqueue.add(url='/tasks/cache_average_score')
-        return game.to_form('Time To Play HotStreak!')
+        return game.to_form('Time To Play HotStreak! You start with 10 points.')
 
     @endpoints.method(request_message=GET_GAME_REQUEST,
                       response_message=GameForm,
@@ -85,7 +81,7 @@ class HotStreakApi(remote.Service):
         """Return the current game state."""
         game = get_by_urlsafe(request.urlsafe_game_key, Game)
         if game:
-            return game.to_form('Higher or Lower?')
+            return game.to_form('Higher or Lower? Place a bet!')
         else:
             raise endpoints.NotFoundException('Game not found!')
 
@@ -112,7 +108,7 @@ class HotStreakApi(remote.Service):
                       name='make_move',
                       http_method='PUT')
     def make_move(self, request):
-        """Guess Higher or Lower"""
+        """Guess Higher or Lower and place a bet"""
         game = get_by_urlsafe(request.urlsafe_game_key, Game)
         cardValues = ("Ace","Two","Three","Four","Five","Six","Seven","Eight",
             "Nine","Ten", "Jack","Queen","King")
@@ -120,54 +116,80 @@ class HotStreakApi(remote.Service):
         d_card = random.choice(range(1,13))
         m_card = random.choice(range(1,13))
         my_guess= request.guess
+        my_bet = request.bet
 
         StringMessage(message="The dealer has a %s" %(cardValues[d_card]))
 
         if game.game_over:
-            return game.to_form('Game already over!')
+          return game.to_form('Game already over!')
 
-        # If incorrect input, warn user and try again
+        # If the user is out of points. Game over.
+        if game.points == 0:
+          game.game_over=True
+          game.history.append(("You are broke. Game over."))
+
+          game.put()
+          game.put_Scores(game.user)
+          return game.to_form("You are broke. Game Over!")
+
+        # If invalid bet, warn user and try again
+        if my_bet < 0 or my_bet > game.points:
+          msg = "Invalid Bet."
+          msg = msg + ". You have %d" %(game.points)
+          game.put()
+          return game.to_form(msg + " points. How about we try that again?")
+
+        # If incorrect gues, warn user and try again
         if (my_guess.lower() != "higher" and my_guess.lower() != "lower"):
-            msg = "Oops. You entered something other than Higher or Lower."
-            game.put()
-            return game.to_form(msg + " How about we try that again?")
+          msg = "Oops. You entered something other than Higher or Lower."
+          game.put()
+          return game.to_form(msg + " How about we try that again?")
 
-        # If the cards match, automatic win.
+        # If the cards match, automatic win and you double your bet.
         if m_card == d_card:
-            game.points += 1
-            msg = "Your card is a %s" %(cardValues[m_card])
-            game.history.append(("You had the same card as the dealer."))
-            game.put()
-            return game.to_form(msg + 
-                ". The dealer has the same card. You Automatically Win!")
+          game.points += (my_bet *2)
+          msg = "Your card is a %s" %(cardValues[m_card])
+          msg += ". The dealer has the same card. You now have %d" %(game.points)
+          game.history.append(("You had the same card as the dealer. Points: %d" 
+                              %(game.points)))
+          game.put()
+          return game.to_form(msg + 
+              " points. You doubled your bet!")
 
         # User guesses Higher and is correct
         elif (my_guess.lower() == "higher") and (m_card > d_card):
-              game.points += 1
-              msg = "The dealer has a %s" %(cardValues[d_card])
-              msg = msg + ". Your card is a %s" %(cardValues[m_card])
-              game.history.append(("You guessed higher and you were correct."))
-              game.put()
-              return game.to_form(msg + ". You Win!")
+          game.points += my_bet
+          msg = "The dealer has a %s" %(cardValues[d_card])
+          msg = msg + ". Your card is a %s" %(cardValues[m_card])
+          msg = msg + ". You now have %d" %(game.points)
+          game.history.append(("You guessed higher and you were correct. Points: %d"
+                              %(game.points)))
+          game.put()
+          return game.to_form(msg + " points. You Win!")
 
         # User guesses Lower and is correct
         elif (my_guess.lower() == "lower" and (m_card < d_card)):
-            game.points += 1
-            msg = "The dealer has a %s" %(cardValues[d_card])
-            msg = msg + ". Your card is a %s" %(cardValues[m_card])
-            game.history.append(("You guessed lower and you were correct."))
-            game.put()
-            return game.to_form(msg + ". You Win!")
+          game.points += my_bet
+          msg = "The dealer has a %s" %(cardValues[d_card])
+          msg = msg + ". Your card is a %s" %(cardValues[m_card])
+          msg = msg + ". You now have %d" %(game.points)
+          game.history.append(("You guessed lower and you were correct. Points: %d"
+                                %(game.points)))
+          game.put()
+          return game.to_form(msg + " points. You Win!")
 
         # User guesses incorrectly, so game over.
         else:
           msg = "The dealer has a %s" %(cardValues[d_card])
           msg = msg + ". Your card is a %s" %(cardValues[m_card])
+          msg = msg + ". Your final score is %d" %(game.points)
           game.game_over=True
-          game.history.append(("You were incorrect. Game over."))
+          game.history.append(("You were incorrect. Game over. Final Points: %d"
+                                %(game.points)))
+
           game.put()
-          game.put_Scores()
-          return game.to_form(msg + ". Game Over!")
+          game.put_Scores(game.user)
+          return game.to_form(msg + " points. Game Over!")
  
     @endpoints.method(request_message=USER_REQUEST,
                       response_message=GameForms,
@@ -202,7 +224,7 @@ class HotStreakApi(remote.Service):
                       name='get_high_scores',
                       http_method='PUT')
     def get_high_scores(self, request):
-        """Return all scores ordered by streak length"""
+        """Return all scores ordered by total points"""
         rlen = request.num_results
 
         scores=Score.query().order(-Score.points)
