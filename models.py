@@ -1,6 +1,5 @@
-"""models.py - This file contains the class definitions for the Datastore
-entities used by the Game. Because these classes are also regular Python
-classes they can include methods (such as 'to_form' and 'new_game')."""
+# Contains class definitions for all datastone entries used by HotStreak.
+# Also contains updating/displaying methods.
 
 import random
 from datetime import date
@@ -84,7 +83,6 @@ class Score(ndb.Model):
         return ScoreForm(user_name=self.user.get().name, date=str(self.date),
                         points=self.points)
 
-
 class GameForm(messages.Message):
     """GameForm for outbound game state information"""
     urlsafe_key = messages.StringField(1, required=True)
@@ -101,7 +99,6 @@ class GameForms(messages.Message):
 class NewGameForm(messages.Message):
     """Used to create a new game"""
     user_name = messages.StringField(1, required=True)
-
 
 class MakeMoveForm(messages.Message):
     """Used to make a move in an existing game"""
@@ -133,7 +130,6 @@ class UserForm(messages.Message):
 class UserForms(messages.Message):
     """Container for multiple User Forms"""
     items = messages.MessageField(UserForm, 1, repeated=True)
-
 
 class StringMessage(messages.Message):
     """StringMessage-- outbound (single) string message"""

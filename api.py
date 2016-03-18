@@ -1,8 +1,5 @@
-"""api.py - Create and configure the Game API exposing the resources.
-This can also contain game logic. For more complex games it would be wise to
-move game logic to another file. Ideally the API will be simple, concerned
-primarily with communication to/from the API's users."""
-
+# Contains api endpoints for game functionality. make_move() contains
+# game logic for a higher or lower game with betting.
 
 import logging
 import endpoints
@@ -124,7 +121,7 @@ class HotStreakApi(remote.Service):
         if game.game_over:
           return game.to_form('Game already over!')
 
-        # If the user is out of points. Game over.
+        # If the user is out of points. Make sure the game immediately ends
         if game.points == 0:
           game.game_over=True
           game.history.append(("You are broke. Game over."))
@@ -155,6 +152,10 @@ class HotStreakApi(remote.Service):
           game.history.append(("You had the same card as the dealer. Points: %d" 
                               %(game.points)))
           game.nextcard = random.choice(range(1,13))
+
+          # Send lucky email.
+          taskqueue.add(url='/tasks/send_lucky_email',
+                        params={'user_key': game.next_move.urlsafe()})
           game.put()
           return game.to_form(msg + 
               " points. You doubled your bet!")

@@ -1,7 +1,5 @@
 #!/usr/bin/env python
-
-"""main.py - This file contains handlers that are called by taskqueue and/or
-cronjobs."""
+# Contains scripts and cron and taskqueue jobs.
 import logging
 
 import webapp2
@@ -10,27 +8,38 @@ from api import HotStreakApi
 
 from models import User
 
-
+# Send all users a reminder email. Currently set to email once a year.
 class SendReminderEmail(webapp2.RequestHandler):
     def get(self):
-        """Send a reminder email to each User with an email about games.
-        Called every hour using a cron job"""
+        """Send a reminder email to each User."""
         app_id = app_identity.get_application_id()
         users = User.query(User.email != None)
         for user in users:
             subject = 'This is a reminder!'
-            body = 'Hello {}, try out Guess A Number!'.format(user.name)
-            # This will send test emails, the arguments to send_mail are:
-            # from, to, subject, body
+            body = 'Hello {}, You should play a game of HotStreak!'.format(user.name)
             mail.send_mail('noreply@{}.appspotmail.com'.format(app_id),
                            user.email,
                            subject,
                            body)
 
+# Sends a user an email when they double their points in HotStreak.
+class SendLuckyEmail(webapp2.RequestHandler):
+    def post(self):
+        """Send an email to a User that they doubled their points"""
+        logging.debug('HOOBUS"')
+        user = get_by_urlsafe(self.request.get('user_key'), User)
+        subject = 'You\'re really lucky!'
+        body = "You just doubled your points in HotStreak!"
+        logging.debug(body)
+        mail.send_mail('noreply@{}.appspotmail.com'.
+                               format(app_identity.get_application_id()),
+                               user.email,
+                               subject,
+                               body)
 
+# Update the average score in the memcache
 class UpdateAverageScore(webapp2.RequestHandler):
     def post(self):
-        """Update game listing announcement in memcache."""
         HotStreakApi.cache_average_score()
         self.response.set_status(204)
 
@@ -38,4 +47,5 @@ class UpdateAverageScore(webapp2.RequestHandler):
 app = webapp2.WSGIApplication([
     ('/crons/send_reminder', SendReminderEmail),
     ('/tasks/cache_average_score', UpdateAverageScore),
+    ('/tasks/send_lucky_email', SendLuckyEmail),
 ], debug=True)
