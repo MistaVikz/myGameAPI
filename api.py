@@ -20,14 +20,15 @@ GET_GAME_REQUEST = endpoints.ResourceContainer(
 MAKE_MOVE_REQUEST = endpoints.ResourceContainer(
     MakeMoveForm,
     urlsafe_game_key=messages.StringField(1),)
-USER_REQUEST = endpoints.ResourceContainer(user_name=messages.StringField(1, 
-                                          required=True),
+USER_REQUEST = endpoints.ResourceContainer(user_name=messages.StringField(1,
+                                           required=True),
                                            email=messages.StringField(2))
 
 MEMCACHE_AVERAGE_SCORE = 'AVERAGE_SCORE'
 
-cardValues = ("Ace","Two","Three","Four","Five","Six","Seven","Eight",
-            "Nine","Ten", "Jack","Queen","King")
+cardValues = ("Ace", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
+              "Nine", "Ten", "Jack", "Queen", "King")
+
 
 @endpoints.api(name='hot_streak', version='v1')
 class HotStreakApi(remote.Service):
@@ -44,6 +45,11 @@ class HotStreakApi(remote.Service):
                     'A User with that name already exists!')
         user = User(name=request.user_name, email=request.email)
         user.put()
+
+        # Send Welcome email.
+        taskqueue.add(url='/tasks/send_user_email',
+                      params={'user_key': user.key})
+
         return StringMessage(message='User {} created!'.format(
                 request.user_name))
 
@@ -57,7 +63,6 @@ class HotStreakApi(remote.Service):
         users = sorted(users, key=lambda x: x.avg_score, reverse=True)
         return UserForms(items=[user.to_form() for user in users])
 
-
     @endpoints.method(request_message=NEW_GAME_REQUEST,
                       response_message=GameForm,
                       path='game',
@@ -67,11 +72,9 @@ class HotStreakApi(remote.Service):
         """Creates new game"""
         user = User.query(User.name == request.user_name).get()
         if not user:
-            raise endpoints.NotFoundException(
-            'A User with that name does not exist!')
-        
+            raise endpoints.NotFoundException('User does not exist!')
         game = Game.new_game(user.key)
-        return game.to_form('Time To Play HotStreak! You start with 10 points.')
+        return game.to_form('Time To Play HotStreak! You have 10 points.')
 
     @endpoints.method(request_message=GET_GAME_REQUEST,
                       response_message=GameForm,
@@ -82,7 +85,7 @@ class HotStreakApi(remote.Service):
         """Return the current game state."""
         game = get_by_urlsafe(request.urlsafe_game_key, Game)
         if game:
-            msg = "The dealer has a %s" %(cardValues[game.nextcard])
+            msg = "The dealer has a %s" % (cardValues[game.nextcard])
             return game.to_form(msg + '. Higher or Lower? Place a bet!')
         else:
             raise endpoints.NotFoundException('Game not found!')
@@ -100,7 +103,8 @@ class HotStreakApi(remote.Service):
             return StringMessage(message='Game with key: {} deleted.'.
                                  format(request.urlsafe_game_key))
         elif game and game.game_over:
-            raise endpoints.BadRequestException('Cannot delete a completed game!')
+            raise endpoints.BadRequestException(
+                            'Cannot delete a completed game!')
         else:
             raise endpoints.NotFoundException('That game does not exist!')
 
@@ -112,91 +116,86 @@ class HotStreakApi(remote.Service):
     def make_move(self, request):
         """Guess Higher or Lower and place a bet"""
         game = get_by_urlsafe(request.urlsafe_game_key, Game)
-        
         d_card = game.nextcard
-        m_card = random.choice(range(1,13))
-        my_guess= request.guess
+        m_card = random.choice(range(1, 13))
+        my_guess = request.guess
         my_bet = request.bet
 
         if game.game_over:
-          return game.to_form('Game already over!')
+            return game.to_form('Game already over!')
 
         # If the user is out of points. Make sure the game immediately ends
         if game.points == 0:
-          game.game_over=True
-          game.history.append(("You are broke. Game over."))
+            game.game_over = True
+            game.history.append(("You are broke. Game over."))
 
-          game.put()
-          game.put_Scores(game.user)
-          return game.to_form("You are broke. Game Over!")
+            game.put()
+            game.put_Scores(game.user)
+            return game.to_form("You are broke. Game Over!")
 
         # If invalid bet, warn user and try again
         if my_bet < 0 or my_bet > game.points:
-          msg = "Invalid Bet."
-          msg = msg + ". You have %d" %(game.points)
-          game.put()
-          return game.to_form(msg + " points. How about we try that again?")
+            msg = "Invalid Bet."
+            msg = msg + ". You have %d" % (game.points)
+            game.put()
+            return game.to_form(msg + " points. How about we try that again?")
 
         # If incorrect gues, warn user and try again
         if (my_guess.lower() != "higher" and my_guess.lower() != "lower"):
-          msg = "Oops. You entered something other than Higher or Lower."
-          game.nextcard = random.choice(range(1,13))
-          game.put()
-          return game.to_form(msg + " How about we try that again?")
+            msg = "Oops. You entered something other than Higher or Lower."
+            game.nextcard = random.choice(range(1, 13))
+            game.put()
+            return game.to_form(msg + " How about we try that again?")
 
         # If the cards match, automatic win and you double your bet.
         if m_card == d_card:
-          game.points += (my_bet *2)
-          msg = "Your card is a %s" %(cardValues[m_card])
-          msg += ". The dealer has the same card. You now have %d" %(game.points)
-          game.history.append(("You had the same card as the dealer. Points: %d" 
-                              %(game.points)))
-          game.nextcard = random.choice(range(1,13))
-
-          # Send lucky email.
-          taskqueue.add(url='/tasks/send_lucky_email',
-                        params={'user_key': game.next_move.urlsafe()})
-          game.put()
-          return game.to_form(msg + 
-              " points. You doubled your bet!")
+            game.points += (my_bet * 2)
+            msg = "Your card is a %s" % (cardValues[m_card])
+            msg += ". The dealer has the same card. You have %d" % (game.points)
+            game.history.append(("Same card as the dealer. Points: %d"
+                                % (game.points)))
+            game.nextcard = random.choice(range(1, 13))
+            game.put()
+            return game.to_form(msg + " points. You doubled your bet!")
 
         # User guesses Higher and is correct
         elif (my_guess.lower() == "higher") and (m_card > d_card):
-          game.points += my_bet
-          msg = "The dealer has a %s" %(cardValues[d_card])
-          msg = msg + ". Your card is a %s" %(cardValues[m_card])
-          msg = msg + ". You now have %d" %(game.points)
-          game.history.append(("You guessed higher and you were correct. Points: %d"
-                              %(game.points)))
-          game.nextcard = random.choice(range(1,13))
-          game.put()
-          return game.to_form(msg + " points. You Win!")
+            game.points += my_bet
+            msg = "The dealer has a %s" % (cardValues[d_card])
+            msg = msg + ". Your card is a %s" % (cardValues[m_card])
+            msg = msg + ". You now have %d" % (game.points)
+            game.history.append(("You guessed higher. You are correct. Points: %d"
+                                % (game.points)))
+            game.nextcard = random.choice(range(1, 13))
+            game.put()
+            return game.to_form(msg + " points. You Win!")
 
         # User guesses Lower and is correct
         elif (my_guess.lower() == "lower" and (m_card < d_card)):
-          game.points += my_bet
-          msg = "The dealer has a %s" %(cardValues[d_card])
-          msg = msg + ". Your card is a %s" %(cardValues[m_card])
-          msg = msg + ". You now have %d" %(game.points)
-          game.history.append(("You guessed lower and you were correct. Points: %d"
-                                %(game.points)))
-          game.nextcard = random.choice(range(1,13))
-          game.put()
-          return game.to_form(msg + " points. You Win!")
+            game.points += my_bet
+            msg = "The dealer has a %s" % (cardValues[d_card])
+            msg = msg + ". Your card is a %s" % (cardValues[m_card])
+            msg = msg + ". You now have %d" % (game.points)
+            game.history.append(("You guessed lower. You are correct. Points: %d"
+                                % (game.points)))
+            game.nextcard = random.choice(range(1, 13))
+            game.put()
+            return game.to_form(msg + " points. You Win!")
 
         # User guesses incorrectly, so game over.
         else:
-          msg = "The dealer has a %s" %(cardValues[d_card])
-          msg = msg + ". Your card is a %s" %(cardValues[m_card])
-          msg = msg + ". Your final score is %d" %(game.points)
-          game.game_over=True
-          game.history.append(("You were incorrect. Game over. Final Points: %d"
-                                %(game.points)))
+            # Cache the average point total
+            taskqueue.add(url='/tasks/cache_average_score')
+            msg = "The dealer has a %s" % (cardValues[d_card])
+            msg = msg + ". Your card is a %s" % (cardValues[m_card])
+            msg = msg + ". Your final score is %d" % (game.points)
+            game.game_over = True
+            game.history.append(("Incorrect. Game over. Final Points: %d"
+                                % (game.points)))
+            game.put()
+            game.put_Scores(game.user)
+            return game.to_form(msg + " points. Game Over!")
 
-          game.put()
-          game.put_Scores(game.user)
-          return game.to_form(msg + " points. Game Over!")
- 
     @endpoints.method(request_message=USER_REQUEST,
                       response_message=GameForms,
                       path='user/games',
@@ -207,9 +206,8 @@ class HotStreakApi(remote.Service):
         user = User.query(User.name == request.user_name).get()
         if not user:
             raise endpoints.BadRequestException('User not found!')
-        
         games = Game.query(Game.user == user.key).\
-            filter(Game.game_over == False)
+            filter(Game.game_over is False)
         return GameForms(items=[game.to_form("") for game in games])
 
     @endpoints.method(request_message=GET_GAME_REQUEST,
@@ -233,8 +231,8 @@ class HotStreakApi(remote.Service):
         """Return all scores ordered by total points"""
         rlen = request.num_results
 
-        scores=Score.query().order(-Score.points)
-        f_scores= scores.fetch(rlen)
+        scores = Score.query().order(-Score.points)
+        f_scores = scores.fetch(rlen)
         return ScoreForms(items=[score.to_form() for score in f_scores])
 
     @endpoints.method(request_message=USER_REQUEST,
@@ -261,13 +259,13 @@ class HotStreakApi(remote.Service):
 
     @staticmethod
     def cache_average_score():
-        """Populates memcache with the average score"""
-        games = Game.query(Game.game_over == False).fetch()
+        """Populates memcache with the average score of all games played"""
+        games = Game.query(Game.game_over is True).fetch()
         if games:
             count = len(games)
             total_score = sum([game.points for game in games])
             average = float(total_score)/count
             memcache.set(MEMCACHE_AVERAGE_SCORE,
-                         'Your average score is {:.2f}'.format(average))
+                         'The global average score is {:.2f}'.format(average))
 
 api = endpoints.api_server([HotStreakApi])

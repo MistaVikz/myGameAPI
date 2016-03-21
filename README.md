@@ -37,7 +37,7 @@ given time. Each game can be retrieved or played by using the path parameter
     - Parameters: user_name, email (optional)
     - Returns: Message confirming creation of the User.
     - Description: Creates a new User. user_name provided must be unique. Will 
-    raise a ConflictException if a User with that user_name already exists.
+    raise a ConflictException if a User with that user_name already exists. The welcome email is added to the task queue.
  
  - **get_user_rankings**
     - Path: 'user/rankings'
@@ -77,7 +77,7 @@ given time. Each game can be retrieved or played by using the path parameter
     - Method: PUT
     - Parameters: urlsafe_game_key, guess, bet
     - Returns: GameForm with new game state.
-    - Description: Accepts a 'guess' and a 'bet" and returns the updated state of the game. Records the status of the move the the game's history. If the game ends, a corresponding Score entity will be created. If the user's and the dealer's cards are the same, adds the "lucky email to the taskqueue. 
+    - Description: Accepts a 'guess' and a 'bet" and returns the updated state of the game. Records the status of the move the the game's history. If the game ends, a corresponding Score entity will be created and the cached average score is updated.  
     
  - **get_user_games**
     - Path: 'user/games'
@@ -151,4 +151,4 @@ given time. Each game can be retrieved or played by using the path parameter
 ##References and Notes**
 - Used the GuessANumberAPI as a starting point for this project. Changed Models, Forms, and endpoints to what HotStreakAPI required. Replaced game logic with HotStreak game logic. Updated taskqueue and cron jobs to match project requirements.
 
-- Note: Added an email to the taskqueue when the user gets lucky and receives the same card as the dealer. I changed the cron job to send a reminder email once a year. I made these changes because the game logic doesn't really give an obvious point to send reminder emails. On a personal note, i dislike reminder emails and think they should be sent very infrequently. 
+- Taskqueue/CRON notes: I changed the CRON job to send a reminder email once a year. I added a welcome email that is sent when a user creates a new user name. The memcache scores the average score for all games played. Whenever a game is completed, the cache is updated with a new score. 

@@ -10,8 +10,8 @@ from google.appengine.ext import ndb
 class User(ndb.Model):
     """User profile"""
     name = ndb.StringProperty(required=True)
-    email =ndb.StringProperty()
-    total_points=ndb.IntegerProperty(default=0)
+    email = ndb.StringProperty()
+    total_points = ndb.IntegerProperty(default=0)
     total_games = ndb.IntegerProperty(default=0)
 
     @property
@@ -34,10 +34,11 @@ class User(ndb.Model):
         self.total_games += 1
         self.put()
 
+
 class Game(ndb.Model):
     """Game object"""
     points = ndb.IntegerProperty(required=True)
-    nextcard=ndb.IntegerProperty()
+    nextcard = ndb.IntegerProperty()
     game_over = ndb.BooleanProperty(required=True, default=False)
     user = ndb.KeyProperty(required=True, kind='User')
     history = ndb.PickleProperty(required=True)
@@ -46,7 +47,7 @@ class Game(ndb.Model):
     def new_game(cls, user):
         """Creates and returns a new game"""
         game = Game(user=user,
-                    nextcard=random.choice(range(1,13)),
+                    nextcard=random.choice(range(1, 13)),
                     points=10,
                     game_over=False)
         game.history = []
@@ -64,14 +65,15 @@ class Game(ndb.Model):
         form.message = message
         return form
 
-    def put_Scores(self,user):
-        self.game_over= True
+    def put_Scores(self, user):
+        self.game_over = True
         self.put()
         # Add the game to the score 'board'
         score = Score(user=self.user, date=date.today(),
                       points=self.points)
         score.put()
         user.get().update_user(self.points)
+
 
 class Score(ndb.Model):
     """Score object"""
@@ -81,7 +83,8 @@ class Score(ndb.Model):
 
     def to_form(self):
         return ScoreForm(user_name=self.user.get().name, date=str(self.date),
-                        points=self.points)
+                         points=self.points)
+
 
 class GameForm(messages.Message):
     """GameForm for outbound game state information"""
@@ -92,22 +95,27 @@ class GameForm(messages.Message):
     message = messages.StringField(5, required=True)
     user_name = messages.StringField(6, required=True)
 
+
 class GameForms(messages.Message):
     """Return multiple GameForms"""
     items = messages.MessageField(GameForm, 1, repeated=True)
 
+
 class NewGameForm(messages.Message):
     """Used to create a new game"""
     user_name = messages.StringField(1, required=True)
+
 
 class MakeMoveForm(messages.Message):
     """Used to make a move in an existing game"""
     guess = messages.StringField(1, required=True)
     bet = messages.IntegerField(2, required=True)
 
+
 class ScoreRequestForm(messages.Message):
     """Used to limit the number of returned Scores"""
     num_results = messages.IntegerField(1, required=False, default=5)
+
 
 class ScoreForm(messages.Message):
     """ScoreForm for outbound Score information"""
@@ -115,9 +123,11 @@ class ScoreForm(messages.Message):
     date = messages.StringField(2, required=True)
     points = messages.IntegerField(3)
 
+
 class ScoreForms(messages.Message):
     """Return multiple ScoreForms"""
     items = messages.MessageField(ScoreForm, 1, repeated=True)
+
 
 class UserForm(messages.Message):
     """User Form"""
@@ -127,9 +137,11 @@ class UserForm(messages.Message):
     total_games = messages.IntegerField(4, required=True)
     avg_score = messages.FloatField(5, required=True)
 
+
 class UserForms(messages.Message):
     """Container for multiple User Forms"""
     items = messages.MessageField(UserForm, 1, repeated=True)
+
 
 class StringMessage(messages.Message):
     """StringMessage-- outbound (single) string message"""
